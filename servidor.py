@@ -1,45 +1,65 @@
+# servidor.py
 import socket
-import json
 import sqlite3
+import json
+import time
 
-# Configurações
 HOST = '127.0.0.1'
 PORT = 5000
-DB_PATH = 'basecpf.db' 
+DB_PATH = 'basecpf.db'
 
 def consultar_banco(comando_sql):
     try:
+        inicio = time.time()  # ⏱️ Início da medição
+
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         cursor.execute(comando_sql)
         resultados = cursor.fetchall()
-        colunas = [descricao[0] for descricao in cursor.description]
+        colunas = [desc[0] for desc in cursor.description]
         conn.close()
-        return colunas, resultados
+
+        fim = time.time()  # ⏱️ Fim da medição
+        tempo_execucao = fim - inicio
+
+        return {
+            "status": "ok",
+            "colunas": colunas,
+            "resultados": resultados,
+            "tempo_execucao_segundos": round(tempo_execucao, 6)
+        }
+
     except Exception as e:
-        return None, f"Erro ao consultar o banco: {e}"
+        return {"status": "erro", "mensagem": str(e)}
 
-def iniciar_interface_sql():
-    print("Servidor local iniciado. Digite comandos SQL para consultar o banco:")
-    print("Digite 'sair' para encerrar.")
+def iniciar_servidor():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as servidor:
+        servidor.bind((HOST, PORT))
+        servidor.listen()
+        print(f"Servidor escutando em {HOST}:{PORT}")
 
-    while True:
-        comando_sql = input("SQL > ").strip()
-        if comando_sql.lower() == 'sair':
-            print("Encerrando servidor...")
-            break
+        while True:
+            conexao, endereco = servidor.accept()
+            with conexao:
+                print(f"Conexão estabelecida com {endereco}")
+                dados = conexao.recv(4096)
 
-        if not comando_sql.endswith(';'):
-            comando_sql += ';'
+                if not dados:
+                    break
 
-        colunas, resultados = consultar_banco(comando_sql)
-        if colunas:
-            print("→ Resultado da consulta:")
-            print(" | ".join(colunas))
-            for linha in resultados:
-                print(" | ".join(str(valor) for valor in linha))
-        else:
-            print(resultados)  # mensagem de erro
+                try:
+                    payload = json.loads(dados.decode('utf-8'))
+                    comando_sql = payload.get("sql")
+
+                    if not comando_sql:
+                        resposta = {"status": "erro", "mensagem": "Nenhum comando SQL enviado"}
+                    else:
+                        resposta = consultar_banco(comando_sql)
+
+                except json.JSONDecodeError:
+                    resposta = {"status": "erro", "mensagem": "Formato inválido (esperado JSON)"}
+
+                conexao.sendall(json.dumps(resposta).encode('utf-8'))
 
 if __name__ == '__main__':
-    iniciar_interface_sql()
+    iniciar_servidor()
