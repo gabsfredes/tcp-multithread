@@ -11,16 +11,27 @@ DB_PATH = 'basecpf.db'
 
 ENCERRAR = multiprocessing.Event()  # Event para controlar encerramento do servidor
 
+db_lock = threading.Lock()
+
 def consultar_banco(comando_sql):
     try:
         inicio = time.time()
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(comando_sql)
-        resultados = cursor.fetchall()
-        colunas = [desc[0] for desc in cursor.description]
-        conn.close()
+        with db_lock:  # Garante que apenas uma thread acesse o banco por vez
+            conn = sqlite3.connect(DB_PATH)
+            cursor = conn.cursor()
+            cursor.execute(comando_sql)
+            resultados = cursor.fetchall()
+            colunas = [desc[0] for desc in cursor.description]
+            conn.close()
         fim = time.time()
+
+        if not resultados:  # Verifica se a lista de resultados está vazia
+            return {
+                "status": "ok",
+                "mensagem": "Nenhum resultado encontrado.",
+                "tempo_execucao_segundos": round(fim - inicio, 6)
+            }
+
         return {
             "status": "ok",
             "colunas": colunas,
@@ -29,6 +40,7 @@ def consultar_banco(comando_sql):
         }
     except Exception as e:
         return {"status": "erro", "mensagem": str(e)}
+
 
 def lidar_com_cliente(conexao, endereco):
     print(f"✅ [PID {multiprocessing.current_process().pid}] Conectado a {endereco}")
