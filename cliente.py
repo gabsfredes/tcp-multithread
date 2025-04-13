@@ -68,7 +68,7 @@ class ClienteWindow(QtWidgets.QMainWindow):
                 try:
                     resposta = json.loads(dados.decode('utf-8'))
                     if resposta["status"] == "ok":
-                        self.log_mensagem(f"\n📥 Resultado ({resposta['tempo_execucao_segundos']}s):")
+                        self.log_mensagem(f"\n📥 Um resultado foi recebido ({resposta['tempo_execucao_segundos']}s):")
                         for linha in resposta["resultados"]:
                             self.log_mensagem(str(dict(zip(resposta["colunas"], linha))))
                     else:
@@ -76,20 +76,30 @@ class ClienteWindow(QtWidgets.QMainWindow):
                 except json.JSONDecodeError:
                     self.log_mensagem("⚠️ Resposta do servidor em formato inválido.")
         except Exception as e:
-            self.log_mensagem(f"❌ Erro ao receber resposta: {e}")
-
+            self.log_mensagem(f"❌ Erro crítico na thread de respostas: {e}")
+    
     def enviar_comando(self, comando):
         """Envia um comando SQL ao servidor."""
         if self.conectado:
             payload = json.dumps({"sql": comando})
             try:
                 self.cliente.sendall(payload.encode('utf-8'))
-                self.log_mensagem(f"📤 Comando enviado: {comando}")
+                if "nome LIKE" in comando:
+                    nome = self.ui.campo_nome.text().strip()
+                    self.log_mensagem(f"📤 Enviado pesquisa pelo nome:{nome}.")
+                elif "cpf =" in comando:
+                    cpf = self.ui.campo_cpf.text().strip()
+                    self.log_mensagem(f"📤 Enviado pesquisa pelo CPF: {cpf}.")
+                else:
+                    self.log_mensagem("📤 Comando enviado.")
+            except BrokenPipeError:
+                self.log_mensagem("❌ Conexão com o servidor foi perdida.")
+                self.conectado = False
             except Exception as e:
                 self.log_mensagem(f"❌ Falha ao enviar comando: {e}")
                 self.conectado = False
         else:
-            self.log_mensagem("⚠️ Não conectado a um servidor.")
+           self.log_mensagem("⚠️ Não conectado a um servidor.")
 
     def pesquisar_por_nome(self):
         """Pesquisa por nome no servidor."""
