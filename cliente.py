@@ -1,59 +1,134 @@
-import socket
-import json
+import sys
 import threading
+import json
+from PyQt5 import QtWidgets
+from cliente_gui import Ui_Cliente  # Interface gráfica
+import socket
 
-def ouvir_respostas(cliente):
-    try:
-        while True:
-            dados = cliente.recv(8192)
-            if not dados:
-                print("❌ Conexão encerrada pelo servidor.")
-                break
+class ClienteWindow(QtWidgets.QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.ui = Ui_Cliente()
+        self.ui.setupUi(self)
+
+        # Conecta os botões da interface às funções
+        self.ui.botao_iniciar.clicked.connect(self.conectar_servidor)
+        self.ui.botao_nome.clicked.connect(self.pesquisar_por_nome)
+        self.ui.botao_cpf.clicked.connect(self.pesquisar_por_cpf)
+        self.ui.botao_desconectar.clicked.connect(self.desconectar_servidor)
+
+        # Variáveis para controlar o estado do cliente
+        self.cliente = None
+        self.conectado = False
+
+    def log_mensagem(self, mensagem):
+        """Adiciona uma mensagem ao terminal_cliente."""
+        self.ui.terminal_client_area.append(mensagem)  # Adiciona a mensagem ao QTextEdit
+        self.ui.terminal_client_area.ensureCursorVisible()  # Garante que o scroll acompanhe as mensagens
+
+    def conectar_servidor(self):
+        """Conecta ao servidor com o IP e porta fornecidos."""
+        if not self.conectado:
+            ip = self.ui.campo_ip.text() or "127.0.0.1"
+            try:
+                porta = int(self.ui.campo_porta.text())
+            except ValueError:
+                self.log_mensagem("⚠️ Porta inválida. Insira um número.")
+                return
 
             try:
-                resposta = json.loads(dados.decode('utf-8'))
-                if resposta["status"] == "ok":
-                    print(f"\n📥 Resultado ({resposta['tempo_execucao_segundos']}s):")
-                    for linha in resposta["resultados"]:
-                        print(dict(zip(resposta["colunas"], linha)))
-                else:
-                    print(f"⚠️ Erro: {resposta['mensagem']}")
-            except json.JSONDecodeError:
-                print("⚠️ Resposta do servidor em formato inválido.")
+                self.cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.cliente.connect((ip, porta))
+                self.conectado = True
+                self.log_mensagem(f"✅ Conectado ao servidor {ip}:{porta}")
 
-    except Exception as e:
-        print(f"❌ Erro ao receber resposta: {e}")
+                # Inicia uma thread para ouvir respostas do servidor
+                threading.Thread(target=self.ouvir_respostas, daemon=True).start()
 
-def main():
-    ip = input("Digite o IP do servidor (padrão 127.0.0.1): ").strip() or "127.0.0.1"
-    porta_input = input("Digite a porta do servidor (padrão 5000): ").strip()
-    porta = int(porta_input) if porta_input else 5000
+                # Desativa os campos de conexão
+                self.ui.campo_ip.setEnabled(False)
+                self.ui.campo_porta.setEnabled(False)
+                self.ui.botao_iniciar.setEnabled(False)
+                self.ui.botao_desconectar.setEnabled(True)
+            except Exception as e:
+                self.log_mensagem(f"❌ Falha na conexão: {e}")
+        else:
+            self.log_mensagem("⚠️ Já conectado a um servidor.")
 
-    try:
-        cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        cliente.connect((ip, porta))
-        print(f"✅ Conectado ao servidor {ip}:{porta}")
-    except Exception as e:
-        print(f"❌ Falha na conexão: {e}")
-        return
+    def ouvir_respostas(self):
+        """Thread para ouvir respostas do servidor."""
+        try:
+            while self.conectado:
+                dados = self.cliente.recv(8192)
+                if not dados:
+                    self.log_mensagem("❌ Conexão encerrada pelo servidor.")
+                    self.conectado = False
+                    break
 
-    threading.Thread(target=ouvir_respostas, args=(cliente,), daemon=True).start()
+                try:
+                    resposta = json.loads(dados.decode('utf-8'))
+                    if resposta["status"] == "ok":
+                        self.log_mensagem(f"\n📥 Resultado ({resposta['tempo_execucao_segundos']}s):")
+                        for linha in resposta["resultados"]:
+                            self.log_mensagem(str(dict(zip(resposta["colunas"], linha))))
+                    else:
+                        self.log_mensagem(f"⚠️ Erro: {resposta['mensagem']}")
+                except json.JSONDecodeError:
+                    self.log_mensagem("⚠️ Resposta do servidor em formato inválido.")
+        except Exception as e:
+            self.log_mensagem(f"❌ Erro ao receber resposta: {e}")
 
-    print("Digite comandos SQL para enviar ao servidor. Digite 'sair' para encerrar.")
-    while True:
-        comando = input("SQL > ").strip()
-        if comando.lower() == 'sair':
-            print("👋 Encerrando cliente...")
-            break
-        if comando:
+    def enviar_comando(self, comando):
+        """Envia um comando SQL ao servidor."""
+        if self.conectado:
             payload = json.dumps({"sql": comando})
             try:
-                cliente.sendall(payload.encode('utf-8'))
+                self.cliente.sendall(payload.encode('utf-8'))
+                self.log_mensagem(f"📤 Comando enviado: {comando}")
             except Exception as e:
-                print(f"❌ Falha ao enviar comando: {e}")
-                break
+                self.log_mensagem(f"❌ Falha ao enviar comando: {e}")
+                self.conectado = False
+        else:
+            self.log_mensagem("⚠️ Não conectado a um servidor.")
 
-    cliente.close()
+    def pesquisar_por_nome(self):
+        """Pesquisa por nome no servidor."""
+        nome = self.ui.campo_nome.text().strip()
+        if nome:
+            comando = f"SELECT * FROM cpf WHERE nome LIKE '%{nome}%'"
+            self.enviar_comando(comando)
+        else:
+            self.log_mensagem("⚠️ Campo de nome está vazio.")
 
-if __name__ == '__main__':
-    main()
+    def pesquisar_por_cpf(self):
+        """Pesquisa por CPF no servidor."""
+        cpf = self.ui.campo_cpf.text().strip()
+        if cpf:
+            comando = f"SELECT * FROM cpf WHERE cpf = '{cpf}'"
+            self.enviar_comando(comando)
+        else:
+            self.log_mensagem("⚠️ Campo de CPF está vazio.")
+
+    def desconectar_servidor(self):
+        """Desconecta do servidor."""
+        if self.conectado:
+            self.log_mensagem("⛔ Desconectando do servidor...")
+            try:
+                self.cliente.close()
+            except Exception as e:
+                self.log_mensagem(f"⚠️ Erro ao desconectar: {e}")
+            finally:
+                self.conectado = False
+                self.ui.campo_ip.setEnabled(True)
+                self.ui.campo_porta.setEnabled(True)
+                self.ui.botao_iniciar.setEnabled(True)
+                self.ui.botao_desconectar.setEnabled(False)
+                self.log_mensagem("🛑 Desconectado do servidor.")
+        else:
+            self.log_mensagem("⚠️ Não há conexão ativa para desconectar.")
+
+if __name__ == "__main__":
+    app = QtWidgets.QApplication(sys.argv)
+    window = ClienteWindow()
+    window.show()
+    sys.exit(app.exec_())

@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>Cliente</class>
- <widget class="QMainWindow" name="Cliente">
+ <class>Servidor</class>
+ <widget class="QMainWindow" name="Servidor">
   <property name="geometry">
    <rect>
     <x>0</x>
     <y>0</y>
     <width>503</width>
-    <height>552</height>
+    <height>515</height>
    </rect>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>503</width>
+    <height>515</height>
+   </size>
   </property>
   <property name="palette">
    <palette>
@@ -75,22 +81,19 @@
    </palette>
   </property>
   <property name="windowTitle">
-   <string>Cliente</string>
+   <string>Servidor</string>
   </property>
   <property name="autoFillBackground">
    <bool>true</bool>
   </property>
   <widget class="QWidget" name="centralwidget">
    <widget class="QGroupBox" name="groupBox">
-    <property name="enabled">
-     <bool>true</bool>
-    </property>
     <property name="geometry">
      <rect>
       <x>20</x>
       <y>20</y>
       <width>461</width>
-      <height>131</height>
+      <height>201</height>
      </rect>
     </property>
     <property name="palette">
@@ -439,7 +442,7 @@
      <bool>false</bool>
     </property>
     <property name="title">
-     <string>Conectar a um servidor</string>
+     <string>Configurar Servidor</string>
     </property>
     <widget class="QWidget" name="gridLayoutWidget">
      <property name="geometry">
@@ -447,19 +450,66 @@
        <x>10</x>
        <y>30</y>
        <width>441</width>
-       <height>91</height>
+       <height>151</height>
       </rect>
      </property>
      <layout class="QGridLayout" name="area_configuracoes">
-      <item row="1" column="0">
+      <item row="2" column="0">
        <widget class="QPushButton" name="botao_iniciar">
-        <property name="enabled">
-         <bool>true</bool>
-        </property>
         <property name="text">
-         <string>Conectar</string>
+         <string>Inicializar Servidor</string>
         </property>
        </widget>
+      </item>
+      <item row="1" column="0">
+       <layout class="QHBoxLayout" name="Clientes_Banco">
+        <item>
+         <layout class="QVBoxLayout" name="clientes">
+          <item>
+           <widget class="QLabel" name="label_maxclientes">
+            <property name="text">
+             <string>Máximo de clientes</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSpinBox" name="spinbox_maxclientes">
+            <property name="minimum">
+             <number>1</number>
+            </property>
+            <property name="maximum">
+             <number>1000</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="banco">
+          <item>
+           <widget class="QLabel" name="label_banco">
+            <property name="font">
+             <font>
+              <pointsize>10</pointsize>
+              <weight>75</weight>
+              <bold>true</bold>
+             </font>
+            </property>
+            <property name="text">
+             <string>Selecione o banco de dados (.db)</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="botao_escolher_banco">
+            <property name="text">
+             <string>Selecionar arquivo...</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
       </item>
       <item row="0" column="0">
        <layout class="QHBoxLayout" name="rede">
@@ -500,9 +550,9 @@
     <property name="geometry">
      <rect>
       <x>20</x>
-      <y>260</y>
+      <y>240</y>
       <width>461</width>
-      <height>261</height>
+      <height>201</height>
      </rect>
     </property>
     <property name="palette">
@@ -584,15 +634,15 @@
      <bool>false</bool>
     </property>
     <property name="title">
-     <string>Resultados de pesquisas</string>
+     <string>Terminal do servidor</string>
     </property>
-    <widget class="QScrollArea" name="terminal_cliente">
+    <widget class="QScrollArea" name="terminal_servidor">
      <property name="geometry">
       <rect>
        <x>10</x>
        <y>20</y>
        <width>441</width>
-       <height>231</height>
+       <height>171</height>
       </rect>
      </property>
      <property name="autoFillBackground">
@@ -607,95 +657,49 @@
         <x>0</x>
         <y>0</y>
         <width>439</width>
-        <height>229</height>
+        <height>169</height>
        </rect>
       </property>
+      <widget class="QTextEdit" name="terminal_informacoes">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>10</y>
+         <width>421</width>
+         <height>151</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <pointsize>9</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+      </widget>
      </widget>
     </widget>
    </widget>
-   <widget class="QWidget" name="horizontalLayoutWidget">
+   <widget class="QPushButton" name="botao_desligar">
     <property name="geometry">
      <rect>
       <x>20</x>
-      <y>170</y>
+      <y>450</y>
       <width>461</width>
-      <height>78</height>
+      <height>23</height>
      </rect>
     </property>
-    <layout class="QHBoxLayout" name="Pesquisas">
-     <item>
-      <layout class="QVBoxLayout" name="pesquisaNome">
-       <item>
-        <widget class="QLabel" name="label_nome">
-         <property name="font">
-          <font>
-           <family>Arial</family>
-           <pointsize>12</pointsize>
-           <weight>75</weight>
-           <bold>true</bold>
-          </font>
-         </property>
-         <property name="text">
-          <string>Pesquisar por Nome</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QLineEdit" name="campo_nome"/>
-       </item>
-       <item>
-        <widget class="QPushButton" name="botao_nome">
-         <property name="font">
-          <font>
-           <family>Arial</family>
-           <weight>75</weight>
-           <bold>true</bold>
-          </font>
-         </property>
-         <property name="text">
-          <string>Pesquisar</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </item>
-     <item>
-      <layout class="QVBoxLayout" name="pesquisaCPF">
-       <item>
-        <widget class="QLabel" name="label_cpf">
-         <property name="font">
-          <font>
-           <family>Arial</family>
-           <pointsize>12</pointsize>
-           <weight>75</weight>
-           <bold>true</bold>
-          </font>
-         </property>
-         <property name="text">
-          <string>Pesquisar por CPF</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QLineEdit" name="campo_cpf"/>
-       </item>
-       <item>
-        <widget class="QPushButton" name="botao_cpf">
-         <property name="font">
-          <font>
-           <family>Arial</family>
-           <weight>75</weight>
-           <bold>true</bold>
-          </font>
-         </property>
-         <property name="text">
-          <string>Pesquisar</string>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </item>
-    </layout>
+    <property name="font">
+     <font>
+      <family>Arial</family>
+      <pointsize>12</pointsize>
+      <weight>75</weight>
+      <bold>true</bold>
+     </font>
+    </property>
+    <property name="text">
+     <string>Desligar Servidor</string>
+    </property>
    </widget>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
