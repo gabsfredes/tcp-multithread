@@ -1,116 +1,184 @@
 import socket
 import sqlite3
-import json
+import os
 import time
-import threading
+import json
+import gzip
+from multiprocessing import Process, Manager
 
+# Configurações
 DB_PATH = 'basecpf.db'
-MAX_CONEXOES = 100  # Limite máximo de conexões simultâneas
+LIMITE_PROCESSOS = 5
+LIMITE_RESULTADOS = 20
 
-ENCERRAR = False
-conexoes_ativas = 0
-lock = threading.Lock()
-
-def consultar_banco(comando_sql):
-    """Executa um comando SQL no banco de dados e retorna os resultados."""
+def consultar_banco(comando_sql, parametros=()):
     try:
-        inicio = time.time()
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        cursor.execute(comando_sql)
+        cursor.execute(comando_sql, parametros)
         resultados = cursor.fetchall()
-        colunas = [desc[0] for desc in cursor.description]
+        colunas = [descricao[0] for descricao in cursor.description]
         conn.close()
-        fim = time.time()
-        return {
-            "status": "ok",
-            "colunas": colunas,
-            "resultados": resultados,
-            "tempo_execucao_segundos": round(fim - inicio, 6)
-        }
+        return colunas, resultados
     except Exception as e:
-        return {"status": "erro", "mensagem": str(e)}
+        return None, f"Erro ao consultar o banco: {e}"
 
-def lidar_com_cliente(conexao, endereco, log_callback=print):
-    """Lida com a comunicação de um cliente conectado."""
-    global conexoes_ativas
-    log_callback(f"🧵 Cliente conectado: {endereco} (Thread: {threading.current_thread().name})")
-
+def enviar_pacote(cliente_socket, mensagem_obj):
     try:
-        while True:
-            dados = conexao.recv(4096)
-            if not dados:
-                log_callback(f"❌ Cliente {endereco} desconectado.")
-                break
+        mensagem_json = json.dumps(mensagem_obj)
+        mensagem_bytes = mensagem_json.encode('utf-8')
+        mensagem_compactada = gzip.compress(mensagem_bytes)
 
-            try:
-                payload = json.loads(dados.decode('utf-8'))
-                comando_sql = payload.get("sql")
+        tamanho = len(mensagem_compactada)
+        cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+    except Exception as e:
+        print(f"❌ Erro ao enviar pacote: {e}")
 
-                if not comando_sql:
-                    resposta = {"status": "erro", "mensagem": "Nenhum comando SQL enviado"}
-                else:
-                    resposta = consultar_banco(comando_sql)
+def receber_pacote(cliente_socket):
+    try:
+        tamanho_bytes = cliente_socket.recv(4)
+        if not tamanho_bytes:
+            return None
+        tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
+        dados_compactados = cliente_socket.recv(tamanho)
+        dados_json = gzip.decompress(dados_compactados).decode('utf-8')
+        mensagem = json.loads(dados_json)
+        return mensagem
+    except Exception as e:
+        print(f"❌ Erro ao receber pacote: {e}")
+        return None
 
-            except json.JSONDecodeError:
-                resposta = {"status": "erro", "mensagem": "Formato inválido (esperado JSON)"}
+def tratar_consulta(cliente_socket, mensagem, endereco):
+    try:
+        start_time = time.time()
 
-            conexao.sendall(json.dumps(resposta).encode('utf-8'))
+        tipo = mensagem.get("tipo")
+        valor = mensagem.get("valor")
+        request_id = mensagem.get("request_id")
 
-    except ConnectionResetError:
-        log_callback(f"⚠️ Cliente {endereco} desconectado abruptamente.")
+        if tipo == "nome":
+            comando_sql = f"SELECT * FROM cpf WHERE nome LIKE ? LIMIT {LIMITE_RESULTADOS};"
+        elif tipo == "cpf":
+            comando_sql = "SELECT * FROM cpf WHERE cpf = ?;"
+        else:
+            enviar_pacote(cliente_socket, {"erro": "Tipo de consulta inválido.", "request_id": request_id})
+            print(f"❌ Enviando erro para {endereco} (tipo inválido)")
+            return
 
-    finally:
-        with lock:
-            conexoes_ativas -= 1
-        conexao.close()
+        colunas, resultados = consultar_banco(comando_sql, (valor,))
+        if colunas:
+            resposta = {
+                "colunas": colunas,
+                "dados": resultados,
+                "request_id": request_id
+            }
+        else:
+            resposta = {
+                "erro": "Nenhum resultado encontrado.",
+                "request_id": request_id
+            }
 
-def monitorar_entrada(log_callback=print):
-    """Monitora a entrada do terminal para comandos administrativos."""
-    global ENCERRAR
+        enviar_pacote(cliente_socket, resposta)
+
+        tempo_total = time.time() - start_time
+
+        if "erro" in resposta:
+            print(f"📤 Enviado para {endereco}: ERRO ({resposta['erro']}) [Tempo: {tempo_total:.2f}s]\n")
+        else:
+            print(f"📤 Enviado para {endereco}: {len(resposta['dados'])} registros retornados na consulta por {tipo}. [Tempo: {tempo_total:.2f}s]\n")
+
+    except Exception as e:
+        print(f"❌ Erro ao processar consulta para {endereco}: {e}")
+
+
+def tratar_cliente(cliente_socket, endereco, consultas_ativas):
+    print(f"🖧 Cliente conectado: {endereco}")
+
+    processos_consultas = []
+    LIMITE_CONSULTAS_POR_CLIENTE = 5
+
     while True:
-        comando = input().strip().lower()
-        if comando == "sair":
-            log_callback("⛔ Encerrando servidor manualmente...")
-            ENCERRAR = True
+        mensagem = receber_pacote(cliente_socket)
+        if not mensagem:
+            print(f"🖧 Cliente {endereco} desconectou.")
             break
 
-def iniciar_servidor(host, port, log_callback=print, max_clientes=100):
-    """
-    Inicia o servidor TCP com o IP, porta e máximo de clientes fornecidos.
-    As mensagens são redirecionadas para o log_callback.
-    """
-    global ENCERRAR, conexoes_ativas, MAX_CONEXOES
-    MAX_CONEXOES = max_clientes  # Atualiza o limite de conexões
+        # 🔥 Agora sim: logamos IMEDIATAMENTE ao receber
+        print(f"🖧 Pedido recebido de {endereco}: {mensagem}")
 
-    threading.Thread(target=monitorar_entrada, args=(log_callback,), daemon=True).start()
+        # 🔥 Atualizar a lista de processos vivos
+        processos_consultas = [p for p in processos_consultas if p.is_alive()]
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as servidor:
-        servidor.bind((host, port))
-        servidor.listen()
-        servidor.settimeout(1.0)
+        if len(processos_consultas) >= LIMITE_CONSULTAS_POR_CLIENTE:
+            request_id = mensagem.get("request_id")
+            resposta = {
+                "erro": f"Limite de {LIMITE_CONSULTAS_POR_CLIENTE} consultas simultâneas atingido. Aguarde terminar.",
+                "request_id": request_id
+            }
+            enviar_pacote(cliente_socket, resposta)
+            print(f"⚠️ Consulta recusada para {endereco} (limite atingido)\n")
+            continue
 
-        log_callback(f"🚀 Servidor escutando em {host}:{port} (máx {MAX_CONEXOES} conexões simultâneas)")
+        # 🔥 Disparar a consulta em subprocesso separado
+        processo_consulta = Process(target=tratar_consulta, args=(cliente_socket, mensagem, endereco))
+        processo_consulta.start()
+        processos_consultas.append(processo_consulta)
 
-        while not ENCERRAR:
+    cliente_socket.close()
+
+
+def iniciar_servidor_socket():
+    ip = input("Informe o IP para o servidor escutar (ex: 0.0.0.0): ").strip()
+    porta = int(input("Informe a Porta para o servidor escutar (ex: 5000): ").strip())
+
+    servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    servidor.bind((ip, porta))
+    servidor.listen()
+    servidor.settimeout(1)  # 🔥 timeout para poder verificar input 'sair' no loop
+    print(f"\n🖧 Servidor socket escutando em {ip}:{porta}...\n")
+
+    with Manager() as manager:
+        consultas_ativas = manager.list()
+
+        print("Digite 'sair' para encerrar o servidor.")
+        while True:
             try:
-                conexao, endereco = servidor.accept()
-            except socket.timeout:
-                continue
+                # Primeiro tenta aceitar conexões
+                try:
+                    cliente, endereco = servidor.accept()
+                    processo_cliente = Process(target=tratar_cliente, args=(cliente, endereco, consultas_ativas))
+                    processo_cliente.start()
+                except socket.timeout:
+                    pass  # Sem conexão, seguimos
 
-            with lock:
-                if conexoes_ativas >= MAX_CONEXOES:
-                    log_callback(f"❌ Limite de conexões atingido. Rejeitando {endereco}")
-                    conexao.sendall(json.dumps({
-                        "status": "erro",
-                        "mensagem": "Limite de conexões simultâneas atingido"
-                    }).encode('utf-8'))
-                    conexao.close()
-                    continue
+                # Agora verifica se o admin digitou 'sair'
+                if os.name == 'nt':
+                    # Windows
+                    import msvcrt
+                    if msvcrt.kbhit():
+                        comando = input()
+                        if comando.strip().lower() == 'sair':
+                            raise KeyboardInterrupt
+                else:
+                    # Linux / Unix
+                    import select, sys
+                    dr, dw, de = select.select([sys.stdin], [], [], 0)
+                    if dr:
+                        comando = sys.stdin.readline()
+                        if comando.strip().lower() == 'sair':
+                            raise KeyboardInterrupt
 
-                conexoes_ativas += 1
+            except KeyboardInterrupt:
+                print("\nEncerrando servidor socket...")
+                servidor.close()
+                break
 
-            thread = threading.Thread(target=lidar_com_cliente, args=(conexao, endereco, log_callback), daemon=True)
-            thread.start()
 
-        log_callback("🧹 Servidor finalizado.")
+if __name__ == '__main__':
+    from multiprocessing import set_start_method
+    try:
+        set_start_method('spawn')
+    except RuntimeError:
+        pass
+
+    iniciar_servidor_socket()

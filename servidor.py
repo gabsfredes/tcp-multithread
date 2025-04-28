@@ -1,187 +1,276 @@
+import sys
 import socket
 import sqlite3
-import os
-import time
 import json
 import gzip
-from multiprocessing import Process, Manager
+import time
+import os
 
-# Configurações
-DB_PATH = 'basecpf.db'
-LIMITE_PROCESSOS = 5
-LIMITE_RESULTADOS = 20
+from PyQt5 import QtWidgets, QtCore
+from PyQt5.QtWidgets import QFileDialog
+from multiprocessing import Process, Manager, Queue, set_start_method
 
-def consultar_banco(comando_sql, parametros=()):
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute(comando_sql, parametros)
-        resultados = cursor.fetchall()
-        colunas = [descricao[0] for descricao in cursor.description]
-        conn.close()
-        return colunas, resultados
-    except Exception as e:
-        return None, f"Erro ao consultar o banco: {e}"
+from servidor_gui import Ui_Servidor  # Ajuste o caminho se necessário
 
-def enviar_pacote(cliente_socket, mensagem_obj):
-    try:
-        mensagem_json = json.dumps(mensagem_obj)
-        mensagem_bytes = mensagem_json.encode('utf-8')
-        mensagem_compactada = gzip.compress(mensagem_bytes)
+class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
+    def __init__(self):
+        super().__init__()
+        self.setupUi(self)
 
-        tamanho = len(mensagem_compactada)
-        cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
-    except Exception as e:
-        print(f"❌ Erro ao enviar pacote: {e}")
+        self.botao_iniciar.clicked.connect(self.iniciar_servidor)
+        self.botao_desligar.clicked.connect(self.parar_servidor)
+        self.botao_escolher_banco.clicked.connect(self.selecionar_banco)
+        self.botao_limpar_terminal.clicked.connect(self.limpar_terminal)
 
-def receber_pacote(cliente_socket):
-    try:
-        tamanho_bytes = cliente_socket.recv(4)
-        if not tamanho_bytes:
-            return None
-        tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
-        dados_compactados = cliente_socket.recv(tamanho)
-        dados_json = gzip.decompress(dados_compactados).decode('utf-8')
-        mensagem = json.loads(dados_json)
-        return mensagem
-    except Exception as e:
-        print(f"❌ Erro ao receber pacote: {e}")
-        return None
+        self.servidor_socket = None
+        self.processos_clientes = []
+        self.servidor_rodando = False
+        self.mensagem_queue = Queue()
 
-def tratar_consulta(cliente_socket, mensagem, endereco):
-    try:
-        start_time = time.time()
+        self.manager = Manager()
+        self.clientes_ativos = self.manager.list()
 
-        tipo = mensagem.get("tipo")
-        valor = mensagem.get("valor")
-        request_id = mensagem.get("request_id")
+        self.timer = QtCore.QTimer()
+        self.timer.timeout.connect(self.checar_mensagens_queue)
+        self.timer.start(100)
 
-        if tipo == "nome":
-            comando_sql = f"SELECT * FROM cpf WHERE nome LIKE ? LIMIT {LIMITE_RESULTADOS};"
-        elif tipo == "cpf":
-            comando_sql = "SELECT * FROM cpf WHERE cpf = ?;"
-        else:
-            enviar_pacote(cliente_socket, {"erro": "Tipo de consulta inválido.", "request_id": request_id})
-            print(f"❌ Enviando erro para {endereco} (tipo inválido)")
+        self.atualizar_led_status(False)
+        self.atualizar_conexoes(0)
+
+    def log(self, mensagem):
+        self.terminal_informacoes.append(mensagem)
+        self.terminal_informacoes.ensureCursorVisible()
+
+    def checar_mensagens_queue(self):
+        while not self.mensagem_queue.empty():
+            msg = self.mensagem_queue.get()
+            if msg.startswith("__update_conexoes__"):
+                quantidade = int(msg.split("__update_conexoes__")[1].strip())
+                self.atualizar_conexoes(quantidade)
+            else:
+                self.log(msg)
+
+    def selecionar_banco(self):
+        options = QFileDialog.Options()
+        arquivo, _ = QFileDialog.getOpenFileName(self, "Selecionar Banco de Dados", "", "Banco de Dados (*.db);;Todos os Arquivos (*)", options=options)
+        if arquivo:
+            self.label_banco.setText(f"Banco selecionado: {arquivo}")
+            self.caminho_banco = arquivo
+            self.log(f"📄 Banco selecionado: {arquivo}")
+
+    def iniciar_servidor(self):
+        if self.servidor_rodando:
+            self.log("⚠️ Servidor já está rodando.")
             return
 
-        colunas, resultados = consultar_banco(comando_sql, (valor,))
-        if colunas:
-            resposta = {
-                "colunas": colunas,
-                "dados": resultados,
-                "request_id": request_id
-            }
-        else:
-            resposta = {
-                "erro": "Nenhum resultado encontrado.",
-                "request_id": request_id
-            }
+        try:
+            ip_texto = self.campo_ip.text().strip()
+            porta_texto = self.campo_porta.text().strip()
 
-        enviar_pacote(cliente_socket, resposta)
+            # 🔥 Verificar se IP e Porta foram preenchidos
+            if not ip_texto or not porta_texto:
+                self.log("❌ IP e Porta precisam ser preenchidos antes de iniciar o servidor.")
+                return
 
-        tempo_total = time.time() - start_time
+            self.ip = ip_texto
+            self.porta = int(porta_texto)
 
-        if "erro" in resposta:
-            print(f"📤 Enviado para {endereco}: ERRO ({resposta['erro']}) [Tempo: {tempo_total:.2f}s]\n")
-        else:
-            print(f"📤 Enviado para {endereco}: {len(resposta['dados'])} registros retornados na consulta por {tipo}. [Tempo: {tempo_total:.2f}s]\n")
+            self.limite_clientes = int(self.spinbox_maxclientes.value())
+            self.limite_processos = int(self.campo_processos.value())
+            self.limite_resultados = int(self.campo_resultados.value())
+            self.db_path = getattr(self, "caminho_banco", None)
 
-    except Exception as e:
-        print(f"❌ Erro ao processar consulta para {endereco}: {e}")
+            if not self.db_path:
+                self.log("❌ Selecione um banco de dados antes de iniciar.")
+                return
 
+            self.servidor_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.servidor_socket.bind((self.ip, self.porta))
+            self.servidor_socket.listen(self.limite_clientes)
 
-def tratar_cliente(cliente_socket, endereco, consultas_ativas):
-    print(f"🖧 Cliente conectado: {endereco}")
+            self.log(f"🖧 Servidor iniciado em {self.ip}:{self.porta}")
+            self.servidor_rodando = True
 
-    processos_consultas = []
-    LIMITE_CONSULTAS_POR_CLIENTE = 5
+            self.servidor_loop = Process(target=self.aceitar_clientes, args=(self.servidor_socket, self.mensagem_queue, self.db_path, self.limite_resultados, self.limite_clientes))
+            self.servidor_loop.start()
 
-    while True:
-        mensagem = receber_pacote(cliente_socket)
-        if not mensagem:
-            print(f"🖧 Cliente {endereco} desconectou.")
-            break
+            self.botao_iniciar.setEnabled(False)  # 🔥 Desabilitar botão após iniciar
 
-        # 🔥 Agora sim: logamos IMEDIATAMENTE ao receber
-        print(f"🖧 Pedido recebido de {endereco}: {mensagem}")
+            self.atualizar_led_status(True)
+            self.atualizar_conexoes(0)
 
-        # 🔥 Atualizar a lista de processos vivos
-        processos_consultas = [p for p in processos_consultas if p.is_alive()]
-
-        if len(processos_consultas) >= LIMITE_CONSULTAS_POR_CLIENTE:
-            request_id = mensagem.get("request_id")
-            resposta = {
-                "erro": f"Limite de {LIMITE_CONSULTAS_POR_CLIENTE} consultas simultâneas atingido. Aguarde terminar.",
-                "request_id": request_id
-            }
-            enviar_pacote(cliente_socket, resposta)
-            print(f"⚠️ Consulta recusada para {endereco} (limite atingido)\n")
-            continue
-
-        # 🔥 Disparar a consulta em subprocesso separado
-        processo_consulta = Process(target=tratar_consulta, args=(cliente_socket, mensagem, endereco))
-        processo_consulta.start()
-        processos_consultas.append(processo_consulta)
-
-    cliente_socket.close()
+        except Exception as e:
+            self.log(f"❌ Erro ao iniciar servidor: {e}")
 
 
-
-
-
-def iniciar_servidor_socket():
-    ip = input("Informe o IP para o servidor escutar (ex: 0.0.0.0): ").strip()
-    porta = int(input("Informe a Porta para o servidor escutar (ex: 5000): ").strip())
-
-    servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    servidor.bind((ip, porta))
-    servidor.listen()
-    servidor.settimeout(1)  # 🔥 timeout para poder verificar input 'sair' no loop
-    print(f"\n🖧 Servidor socket escutando em {ip}:{porta}...\n")
-
-    with Manager() as manager:
-        consultas_ativas = manager.list()
-
-        print("Digite 'sair' para encerrar o servidor.")
-        while True:
+    def parar_servidor(self):
+        if self.servidor_rodando:
+            # 🔥 Novo: mostrar popup de confirmação
+            resposta = QtWidgets.QMessageBox.question(
+                self,
+                'Confirmação',
+                'Deseja realmente desligar o servidor?',
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+            )
+    
+            if resposta == QtWidgets.QMessageBox.No:
+                return  # 🔥 Se clicou "Não", não desliga o servidor
+    
             try:
-                # Primeiro tenta aceitar conexões
-                try:
-                    cliente, endereco = servidor.accept()
-                    processo_cliente = Process(target=tratar_cliente, args=(cliente, endereco, consultas_ativas))
-                    processo_cliente.start()
-                except socket.timeout:
-                    pass  # Sem conexão, seguimos
+                # 🔥 Fecha o socket principal
+                self.servidor_socket.close()
+    
+                # 🔥 Finaliza o processo principal de aceitação
+                self.servidor_loop.terminate()
+    
+                # 🔥 Termina todos os processos de clientes conectados
+                for proc in self.processos_clientes:
+                    if proc.is_alive():
+                        proc.terminate()
+    
+                self.processos_clientes.clear()
+    
+                # 🔥 Limpa lista de clientes
+                self.clientes_ativos[:] = []
+    
+                self.servidor_rodando = False
+    
+                self.log("🛑 Servidor e todos clientes encerrados com sucesso.")
+                self.atualizar_led_status(False)
+                self.atualizar_conexoes(0)
+    
+                # 🔥 Reabilitar botão de iniciar
+                self.botao_iniciar.setEnabled(True)
+    
+            except Exception as e:
+                self.log(f"❌ Erro ao parar o servidor: {e}")
+        else:
+            self.log("⚠️ Servidor não está rodando.")
+    
 
-                # Agora verifica se o admin digitou 'sair'
-                if os.name == 'nt':
-                    # Windows
-                    import msvcrt
-                    if msvcrt.kbhit():
-                        comando = input()
-                        if comando.strip().lower() == 'sair':
-                            raise KeyboardInterrupt
+    def limpar_terminal(self):
+        self.terminal_informacoes.clear()
+
+    def atualizar_led_status(self, ligado):
+        if ligado:
+            self.status_led.setText("🟢 Ligado")
+        else:
+            self.status_led.setText("🔴 Desligado")
+
+    def atualizar_conexoes(self, quantidade):
+        self.label_conexoes_ativas.setText(f"👥 Conexões ativas: {quantidade}")
+
+    @staticmethod
+    def aceitar_clientes(servidor_socket, mensagem_queue, db_path, limite_resultados, limite_clientes):
+       clientes_ativos = []
+       while True:
+           try:
+               cliente_socket, endereco = servidor_socket.accept()
+
+               # 🔥 Aqui verificamos antes de aceitar
+               if len(clientes_ativos) >= limite_clientes:
+                   mensagem_queue.put(f"⚠️ Conexão recusada de {endereco} (limite de clientes atingido)")
+                   cliente_socket.close()
+                   continue
+
+               clientes_ativos.append(endereco)
+               mensagem_queue.put(f"🖧 Cliente conectado: {endereco}")
+               mensagem_queue.put(f"__update_conexoes__ {len(clientes_ativos)}")
+
+               processo_cliente = Process(target=ServidorWindow.tratar_cliente, args=(cliente_socket, endereco, mensagem_queue, db_path, limite_resultados, clientes_ativos))
+               processo_cliente.start()
+
+           except Exception as e:
+               mensagem_queue.put(f"❌ Erro aceitando cliente: {e}")
+
+
+
+    @staticmethod
+    def tratar_cliente(cliente_socket, endereco, mensagem_queue, db_path, limite_resultados, clientes_ativos):
+        try:
+            def enviar_pacote(cliente_socket, mensagem_obj):
+                mensagem_json = json.dumps(mensagem_obj)
+                mensagem_bytes = mensagem_json.encode('utf-8')
+                mensagem_compactada = gzip.compress(mensagem_bytes)
+                tamanho = len(mensagem_compactada)
+                cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+    
+            def receber_pacote(cliente_socket):
+                tamanho_bytes = cliente_socket.recv(4)
+                if not tamanho_bytes:
+                    return None
+                tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
+                dados_compactados = b''
+                while len(dados_compactados) < tamanho:
+                    dados_compactados += cliente_socket.recv(tamanho - len(dados_compactados))
+                dados_json = gzip.decompress(dados_compactados).decode('utf-8')
+                return json.loads(dados_json)
+    
+            def consultar_banco(db_path, comando_sql, parametros=()):
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute(comando_sql, parametros)
+                resultados = cursor.fetchall()
+                colunas = [descricao[0] for descricao in cursor.description]
+                conn.close()
+                return colunas, resultados
+    
+            while True:
+                mensagem = receber_pacote(cliente_socket)
+                if not mensagem:
+                    clientes_ativos.remove(endereco)
+                    mensagem_queue.put(f"🖧 Cliente {endereco} desconectou.")
+                    mensagem_queue.put(f"__update_conexoes__ {len(clientes_ativos)}")
+                    break
+                
+                tipo = mensagem.get("tipo")
+                valor = mensagem.get("valor")
+                request_id = mensagem.get("request_id")
+    
+                mensagem_queue.put(f"🖧 Pedido recebido de {endereco}: {mensagem}")
+    
+                if tipo == "nome":
+                    comando_sql = f"SELECT * FROM cpf WHERE nome LIKE ? LIMIT {limite_resultados};"
+                elif tipo == "cpf":
+                    comando_sql = "SELECT * FROM cpf WHERE cpf = ?;"
                 else:
-                    # Linux / Unix
-                    import select, sys
-                    dr, dw, de = select.select([sys.stdin], [], [], 0)
-                    if dr:
-                        comando = sys.stdin.readline()
-                        if comando.strip().lower() == 'sair':
-                            raise KeyboardInterrupt
+                    enviar_pacote(cliente_socket, {"erro": "Tipo inválido", "request_id": request_id})
+                    mensagem_queue.put(f"⚠️ Tipo inválido de {endereco}")
+                    continue
+                
+                start_time = time.time()  # ⏱️ Começa a contar o tempo da consulta
+                colunas, resultados = consultar_banco(db_path, comando_sql, (valor,))
+                tempo_total = time.time() - start_time  # ⏱️ Termina a contagem
+    
+                if colunas and resultados:
+                    resposta = {"colunas": colunas, "dados": resultados, "request_id": request_id}
+                    enviar_pacote(cliente_socket, resposta)
+                    mensagem_queue.put(
+                        f"📤 Resposta enviada para {endereco}: Pesquisa por {tipo.upper()} = '{valor}' - {len(resultados)} registros encontrados. (Tempo: {tempo_total:.2f} segundos)"
+                    )
+                else:
+                    resposta = {"erro": "Nenhum resultado encontrado.", "request_id": request_id}
+                    enviar_pacote(cliente_socket, resposta)
+                    mensagem_queue.put(
+                        f"📤 Resposta enviada para {endereco}: Pesquisa por {tipo.upper()} = '{valor}' - Nenhum resultado encontrado. (Tempo: {tempo_total:.2f} segundos)"
+                    )
+    
+            cliente_socket.close()
+    
+        except Exception as e:
+            mensagem_queue.put(f"❌ Erro com {endereco}: {e}")
+    
 
-            except KeyboardInterrupt:
-                print("\nEncerrando servidor socket...")
-                servidor.close()
-                break
+        except Exception as e:
+            mensagem_queue.put(f"❌ Erro com {endereco}: {e}")
 
-
-if __name__ == '__main__':
-    from multiprocessing import set_start_method
+if __name__ == "__main__":
     try:
         set_start_method('spawn')
     except RuntimeError:
         pass
 
-    iniciar_servidor_socket()
+    app = QtWidgets.QApplication(sys.argv)
+    janela = ServidorWindow()
+    janela.show()
+    sys.exit(app.exec_())
