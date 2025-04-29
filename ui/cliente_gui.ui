@@ -10,6 +10,12 @@
     <height>462</height>
    </rect>
   </property>
+  <property name="maximumSize">
+   <size>
+    <width>986</width>
+    <height>16777215</height>
+   </size>
+  </property>
   <property name="palette">
    <palette>
     <active>
@@ -584,7 +590,7 @@
      <bool>false</bool>
     </property>
     <property name="title">
-     <string>Resultados de pesquisas</string>
+     <string>Terminal com resultados de pesquisas</string>
     </property>
     <widget class="QScrollArea" name="terminal_cliente">
      <property name="geometry">
@@ -718,7 +724,7 @@
     <property name="geometry">
      <rect>
       <x>20</x>
-      <y>270</y>
+      <y>290</y>
       <width>461</width>
       <height>23</height>
      </rect>
@@ -733,6 +739,19 @@
     </property>
     <property name="text">
      <string>Desconectar do servidor</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="botao_limpar_terminal">
+    <property name="geometry">
+     <rect>
+      <x>374</x>
+      <y>260</y>
+      <width>101</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Limpar Terminal</string>
     </property>
    </widget>
   </widget>

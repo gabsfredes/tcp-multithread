@@ -1,59 +1,128 @@
 import socket
 import json
+import gzip
 import threading
+import os
+import uuid
+import time
 
-def ouvir_respostas(cliente):
+consultas_pendentes = {}
+
+def enviar_pacote(sock, mensagem_obj):
     try:
-        while True:
-            dados = cliente.recv(8192)
-            if not dados:
-                print("❌ Conexão encerrada pelo servidor.")
-                break
+        mensagem_json = json.dumps(mensagem_obj)
+        mensagem_bytes = mensagem_json.encode('utf-8')
+        mensagem_compactada = gzip.compress(mensagem_bytes)
 
-            try:
-                resposta = json.loads(dados.decode('utf-8'))
-                if resposta["status"] == "ok":
-                    print(f"\n📥 Resultado ({resposta['tempo_execucao_segundos']}s):")
-                    for linha in resposta["resultados"]:
-                        print(dict(zip(resposta["colunas"], linha)))
-                else:
-                    print(f"⚠️ Erro: {resposta['mensagem']}")
-            except json.JSONDecodeError:
-                print("⚠️ Resposta do servidor em formato inválido.")
-
+        tamanho = len(mensagem_compactada)
+        sock.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
     except Exception as e:
-        print(f"❌ Erro ao receber resposta: {e}")
- 
-def main():
-    ip = input("Digite o IP do servidor (padrão 127.0.0.1): ").strip() or "127.0.0.1"
-    porta_input = input("Digite a porta do servidor (padrão 5000): ").strip()
-    porta = int(porta_input) if porta_input else 5000
+        print(f"❌ Erro ao enviar pacote: {e}")
+
+def receber_pacote(sock):
+    try:
+        tamanho_bytes = sock.recv(4)
+        if not tamanho_bytes:
+            return None
+        tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
+        dados_compactados = b''
+        while len(dados_compactados) < tamanho:
+            dados_compactados += sock.recv(tamanho - len(dados_compactados))
+        dados_json = gzip.decompress(dados_compactados).decode('utf-8')
+        mensagem = json.loads(dados_json)
+        return mensagem
+    except Exception as e:
+        print(f"❌ Erro ao receber pacote: {e}")
+        return None
+
+def thread_envio(cliente):
+    while True:
+        print("\nEscolha uma opção de consulta:")
+        print("1. Consultar por Nome")
+        print("2. Consultar por CPF")
+        print("Digite 'sair' para encerrar.")
+
+        opcao = input("Opção > ").strip()
+        if opcao.lower() == 'sair':
+            print("Encerrando cliente...")
+            cliente.close()
+            os._exit(0)
+            break
+
+        if opcao == '1':
+            nome = input("Informe o Nome (use % para buscas parciais): ").strip()
+            request_id = str(uuid.uuid4())
+            mensagem = {
+                "tipo": "nome",
+                "valor": nome,
+                "request_id": request_id
+            }
+            consultas_pendentes[request_id] = {
+                "descricao": f"Consulta por Nome: {nome}",
+                "inicio": time.time()
+            }
+        elif opcao == '2':
+            cpf = input("Informe o CPF: ").strip()
+            request_id = str(uuid.uuid4())
+            mensagem = {
+                "tipo": "cpf",
+                "valor": cpf,
+                "request_id": request_id
+            }
+            consultas_pendentes[request_id] = {
+                "descricao": f"Consulta por CPF: {cpf}",
+                "inicio": time.time()
+            }
+        else:
+            print("Opção inválida. Tente novamente.")
+            continue
+
+        enviar_pacote(cliente, mensagem)
+
+def thread_recebimento(cliente):
+    while True:
+        resposta = receber_pacote(cliente)
+
+        if resposta is None:
+            print("❌ Conexão encerrada pelo servidor.")
+            os._exit(0)
+            break
+
+        request_id = resposta.get("request_id")
+        consulta_info = consultas_pendentes.pop(request_id, {"descricao": "Consulta desconhecida", "inicio": time.time()})
+
+        tempo_total = time.time() - consulta_info["inicio"]
+
+        if "erro" in resposta:
+            print(f"\n❌ {consulta_info['descricao']} - Erro: {resposta['erro']} (Tempo: {tempo_total:.2f}s)")
+        else:
+            if not resposta['dados']:  # 🔥 Se lista vazia
+                print(f"\n⚠️ {consulta_info['descricao']} - Nenhum resultado encontrado. (Tempo: {tempo_total:.2f}s)")
+            else:
+                print(f"\n📋 Resultado de {consulta_info['descricao']} (Tempo: {tempo_total:.2f}s):")
+                print(" | ".join(resposta['colunas']))
+                for linha in resposta['dados']:
+                    print(" | ".join(str(valor) for valor in linha))
+        print("\n(Aguardando nova ação...)\n")
+
+
+def conectar_ao_servidor():
+    ip = input("Informe o IP do servidor: ").strip()
+    porta = int(input("Informe a Porta do servidor: ").strip())
 
     try:
         cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         cliente.connect((ip, porta))
-        print(f"✅ Conectado ao servidor {ip}:{porta}")
+        print(f"✅ Conectado ao servidor {ip}:{porta}\n")
     except Exception as e:
-        print(f"❌ Falha na conexão: {e}")
+        print(f"❌ Erro ao conectar: {e}")
         return
 
-    threading.Thread(target=ouvir_respostas, args=(cliente,), daemon=True).start()
+    threading.Thread(target=thread_envio, args=(cliente,), daemon=True).start()
+    threading.Thread(target=thread_recebimento, args=(cliente,), daemon=True).start()
 
-    print("Digite comandos SQL para enviar ao servidor. Digite 'sair' para encerrar.")
     while True:
-        comando = input("SQL > ").strip()
-        if comando.lower() == 'sair':
-            print("👋 Encerrando cliente...")
-            break
-        if comando:
-            payload = json.dumps({"sql": comando})
-            try:
-                cliente.sendall(payload.encode('utf-8'))
-            except Exception as e:
-                print(f"❌ Falha ao enviar comando: {e}")
-                break
-
-    cliente.close()
+        pass
 
 if __name__ == '__main__':
-    main()
+    conectar_ao_servidor()
