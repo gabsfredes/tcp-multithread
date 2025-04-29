@@ -21,6 +21,16 @@ def consultar_nome_processo(db_path, valor, limite_resultados, queue_resultado):
     colunas = [desc[0] for desc in cursor.description]
     conn.close()
     queue_resultado.put((colunas, resultados))
+    
+def consultar_cpf(db_path, valor):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM cpf WHERE cpf = ?;", (valor,))
+    resultados = cursor.fetchall()
+    colunas = [desc[0] for desc in cursor.description]
+    conn.close()
+    return colunas, resultados
+
 
 class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
     def __init__(self):
@@ -38,7 +48,6 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
         self.mensagem_queue = Queue()
 
         self.clientes_ativos = []
-
 
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.checar_mensagens_queue)
@@ -177,47 +186,33 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             except Exception as e:
                 self.log(f"❌ Erro aceitando cliente: {e}")
     
-
     def tratar_cliente(self, cliente_socket, endereco):
         def enviar_pacote(cliente_socket, mensagem_obj):
-            mensagem_json = json.dumps(mensagem_obj)
-            mensagem_bytes = mensagem_json.encode('utf-8')
-            mensagem_compactada = gzip.compress(mensagem_bytes)
-            tamanho = len(mensagem_compactada)
-            cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+            try:
+                mensagem_json = json.dumps(mensagem_obj)
+                mensagem_bytes = mensagem_json.encode('utf-8')
+                mensagem_compactada = gzip.compress(mensagem_bytes)
+                tamanho = len(mensagem_compactada)
+                cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+            except Exception as e:
+                self.mensagem_queue.put(f"❌ Erro enviando resposta para {endereco}: {e}")
 
         def receber_pacote(cliente_socket):
-            tamanho_bytes = cliente_socket.recv(4)
-            if not tamanho_bytes:
+            try:
+                tamanho_bytes = cliente_socket.recv(4)
+                if not tamanho_bytes:
+                    return None
+                tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
+                dados_compactados = b''
+                while len(dados_compactados) < tamanho:
+                    dados_compactados += cliente_socket.recv(tamanho - len(dados_compactados))
+                dados_json = gzip.decompress(dados_compactados).decode('utf-8')
+                return json.loads(dados_json)
+            except:
                 return None
-            tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
-            dados_compactados = b''
-            while len(dados_compactados) < tamanho:
-                dados_compactados += cliente_socket.recv(tamanho - len(dados_compactados))
-            dados_json = gzip.decompress(dados_compactados).decode('utf-8')
-            return json.loads(dados_json)
 
-        def consultar_cpf(db_path, valor):
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM cpf WHERE cpf = ?;", (valor,))
-            resultados = cursor.fetchall()
-            colunas = [desc[0] for desc in cursor.description]
-            conn.close()
-            return colunas, resultados
-
-        try:
-            while self.servidor_rodando:
-                mensagem = receber_pacote(cliente_socket)
-                if not mensagem:
-                    break
-
-                tipo = mensagem.get("tipo")
-                valor = mensagem.get("valor")
-                request_id = mensagem.get("request_id")
-
-                self.mensagem_queue.put(f"📢 Pedido recebido de {endereco}: {mensagem}")
-
+        def processar_consulta(tipo, valor, request_id):
+            try:
                 start_time = time.time()
 
                 if tipo == "nome":
@@ -231,7 +226,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                 else:
                     enviar_pacote(cliente_socket, {"erro": "Tipo inválido", "request_id": request_id})
                     self.mensagem_queue.put(f"⚠️ Tipo inválido de {endereco}")
-                    continue
+                    return
 
                 tempo_total = time.time() - start_time
 
@@ -242,6 +237,22 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
 
                 enviar_pacote(cliente_socket, resposta)
                 self.mensagem_queue.put(f"📤 Resposta enviada para {endereco} (Tempo: {tempo_total:.2f} segundos)")
+            except Exception as e:
+                self.mensagem_queue.put(f"❌ Erro processando consulta de {endereco}: {e}")
+
+        try:
+            while self.servidor_rodando:
+                mensagem = receber_pacote(cliente_socket)
+                if not mensagem:
+                    break
+
+                tipo = mensagem.get("tipo")
+                valor = mensagem.get("valor")
+                request_id = mensagem.get("request_id")
+
+                self.mensagem_queue.put(f"📢 Pedido recebido de {endereco}: {mensagem}")
+
+                threading.Thread(target=processar_consulta, args=(tipo, valor, request_id), daemon=True).start()
 
         except Exception as e:
             self.mensagem_queue.put(f"❌ Erro com {endereco}: {e}")
@@ -250,13 +261,9 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                 cliente_socket.close()
             except:
                 pass
-            
-            # Verifica se ainda estamos no processo principal
             if threading.current_thread() is threading.main_thread() or threading.current_thread().name.startswith('Thread'):
                 if cliente_socket in self.clientes_ativos:
                     self.clientes_ativos.remove(cliente_socket)
-        
-
 
 if __name__ == "__main__":
     try:

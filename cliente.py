@@ -9,11 +9,9 @@ import time
 from PyQt5 import QtWidgets, QtCore
 from cliente_gui import Ui_Cliente
 
-
 class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
     novo_log = QtCore.pyqtSignal(str)
-    novo_alerta = QtCore.pyqtSignal(str, str)  # título, mensagem
-
+    novo_alerta = QtCore.pyqtSignal(str, str) 
 
     def __init__(self):
         super().__init__()
@@ -58,8 +56,6 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
         alerta.setText(mensagem)
         alerta.setStandardButtons(QtWidgets.QMessageBox.Ok)
         alerta.show()
-
-
 
     def limpar_terminal(self):
         self.terminal_client_area.clear()
@@ -108,8 +104,6 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
         except Exception as e:
             self.log(f"❌ Erro ao conectar: {e}")
 
-
-
     def finalizar_conexao(self, sucesso, mensagem):
         try:
             if sucesso:
@@ -136,8 +130,6 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
                 self.thread_conexao.wait()
                 self.thread_conexao.deleteLater()
                 self.thread_conexao = None
-
-
 
     def desconectar(self, motivo=''):
         if self.sock:
@@ -199,9 +191,6 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
         except Exception as e:
             self.log(f"❌ Erro ao receber pacote: {e}")
             return None
-    
-    
-
         
     def receber_respostas(self):
         try:
@@ -242,8 +231,6 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
         finally:
             self.desconectar(motivo="Conexão encerrada pelo servidor.")
     
-
-
     def pesquisar_nome(self):
         nome = self.campo_nome.text().strip()
         if not nome:
