@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import QFileDialog
 from servidor_gui import Ui_Servidor
 
 def consultar_nome_processo(db_path, valor, limite_resultados, queue_resultado):
+    print(f"[PROCESSO filho] PID do subprocesso: {os.getpid()}")
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(f"SELECT * FROM cpf WHERE nome LIKE ? LIMIT {limite_resultados};", (valor,))
@@ -179,7 +180,6 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                         self.log(f"⚠️ Conexão recusada de {endereco} (limite de clientes atingido)")
                     continue
                 
-                # ✅ Aqui adiciona na lista e mostra no terminal
                 self.clientes_ativos.append(cliente_socket)
                 self.log(f"📢 Cliente conectado: {endereco}")
     
@@ -224,6 +224,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                     p.start()
                     p.join()
                     colunas, resultados = resultado_queue.get()
+                    
                 elif tipo == "cpf":
                     colunas, resultados = consultar_cpf(self.db_path, valor)
                 else:
@@ -273,6 +274,8 @@ if __name__ == "__main__":
         set_start_method('spawn')
     except RuntimeError:
         pass
+
+    print(f"[MAIN] PID do processo principal: {os.getpid()}")
 
     app = QtWidgets.QApplication(sys.argv)
     janela = ServidorWindow()
