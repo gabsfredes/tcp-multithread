@@ -63,7 +63,6 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
         self.terminal_client_area.clear()
 
     def conectar_servidor(self):
-        import ssl
 
         ip = self.campo_ip.text().strip()
         porta = self.campo_porta.text().strip()
@@ -100,7 +99,6 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
 
             self.log(f"✅ Conectado com SSL ao servidor {ip}:{porta}")
             self.log(f"🔐 Protocolo: {self.sock.version()}")
-            self.log(f"🔐 Certificado: {self.sock.getpeercert()}")
             self.botao_iniciar.setEnabled(False)
             self.botao_nome.setEnabled(True)
             self.botao_cpf.setEnabled(True)
