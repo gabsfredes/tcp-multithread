@@ -7,6 +7,7 @@ import time
 import os
 import threading
 from multiprocessing import Process, Queue, set_start_method, Manager
+import ssl
 
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QFileDialog
@@ -77,46 +78,55 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.log(f"📄 Banco: {arquivo}")
 
     def iniciar_servidor(self):
+        import ssl
+    
         if self.servidor_rodando:
             self.log("⚠️ Servidor já está rodando.")
             return
-
+    
         try:
             ip_texto = self.campo_ip.text().strip()
             porta_texto = self.campo_porta.text().strip()
-
+    
             if not ip_texto or not porta_texto:
                 self.log("❌ IP e Porta precisam ser preenchidos antes de iniciar o servidor.")
                 return
-
+    
             self.ip = ip_texto
             self.porta = int(porta_texto)
-
+    
             self.limite_clientes = int(self.spinbox_maxclientes.value())
             self.limite_resultados = int(self.campo_resultados.value())
             self.db_path = getattr(self, "caminho_banco", None)
-
+    
             if not self.db_path:
                 self.log("❌ Selecione um banco de dados antes de iniciar.")
                 return
-
-            self.servidor_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.servidor_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+            # 🔐 Criar socket e aplicar camada SSL
+            socket_base = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            socket_base.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    
+            contexto_ssl = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            contexto_ssl.load_cert_chain(certfile='cert.pem', keyfile='chave.pem')
+    
+            self.servidor_socket = contexto_ssl.wrap_socket(socket_base, server_side=True)
+    
             self.servidor_socket.bind((self.ip, self.porta))
             self.servidor_socket.listen(self.limite_clientes)
-
-            self.log(f"🔧 Servidor iniciado em {self.ip}:{self.porta}")
+    
+            self.log(f"🔧 Servidor SSL iniciado em {self.ip}:{self.porta}")
             self.servidor_rodando = True
-
+    
             self.servidor_thread = threading.Thread(target=self.aceitar_clientes, daemon=True)
             self.servidor_thread.start()
-
+    
             self.botao_iniciar.setEnabled(False)
-
             self.atualizar_led_status(True)
-
+    
         except Exception as e:
-            self.log(f"❌ Erro ao iniciar servidor: {e}")
+            self.log(f"❌ Erro ao iniciar servidor com SSL: {e}")
+    
 
     def parar_servidor(self):
         if self.servidor_rodando:

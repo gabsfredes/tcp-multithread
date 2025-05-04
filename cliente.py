@@ -8,6 +8,8 @@ import uuid
 import time
 from PyQt5 import QtWidgets, QtCore
 from cliente_gui import Ui_Cliente
+import ssl
+
 
 class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
     novo_log = QtCore.pyqtSignal(str)
@@ -61,6 +63,8 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
         self.terminal_client_area.clear()
 
     def conectar_servidor(self):
+        import ssl
+
         ip = self.campo_ip.text().strip()
         porta = self.campo_porta.text().strip()
 
@@ -70,13 +74,18 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
 
         try:
             porta = int(porta)
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.settimeout(5)  # timeout na conexão
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+            contexto_ssl = ssl.create_default_context()
+            contexto_ssl.load_verify_locations('cert.pem')  # <-- valida contra cert do servidor
+
+            self.sock = contexto_ssl.wrap_socket(sock, server_hostname=ip)
+            self.sock.settimeout(5)  # timeout inicial para conexão
+
             self.sock.connect((ip, porta))
             self.conectado = True
 
-            # Ajuste: criar timeout apenas para tentar receber rejeição
-            self.sock.settimeout(1.0)  # apenas 1 segundo para esperar rejeição
+            self.sock.settimeout(1.0)
             try:
                 resposta = self.receber_pacote()
                 if resposta and resposta.get("tipo") == "rejeitado":
@@ -85,22 +94,21 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
                     self.desconectar(motivo=motivo)
                     return
             except socket.timeout:
-                # Sem problema: ninguém enviou nada => conexão aceita
                 pass
             finally:
-                self.sock.settimeout(None)  # volta ao modo normal de bloqueio
+                self.sock.settimeout(None)
 
-            self.log(f"✅ Conectado ao servidor {ip}:{porta}")
+            self.log(f"✅ Conectado com SSL ao servidor {ip}:{porta}")
+            self.log(f"🔐 Protocolo: {self.sock.version()}")
+            self.log(f"🔐 Certificado: {self.sock.getpeercert()}")
             self.botao_iniciar.setEnabled(False)
             self.botao_nome.setEnabled(True)
             self.botao_cpf.setEnabled(True)
 
             threading.Thread(target=self.receber_respostas, daemon=True).start()
 
-        except socket.timeout:
-            self.log("⚠️ Tempo de conexão esgotado (timeout).")
-        except ConnectionRefusedError:
-            self.log("⚠️ Conexão recusada: servidor pode estar fechado.")
+        except ssl.SSLError as e:
+            self.log(f"❌ Erro SSL: {e}")
         except Exception as e:
             self.log(f"❌ Erro ao conectar: {e}")
 
