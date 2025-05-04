@@ -33,6 +33,9 @@ def consultar_cpf(db_path, valor):
 
 
 class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
+    
+    def get_db_path(self):
+        return getattr(self, "caminho_banco", None)
     def __init__(self):
         super().__init__()
         self.setupUi(self)

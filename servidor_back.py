@@ -5,9 +5,12 @@ import time
 import json
 import gzip
 from multiprocessing import Process, Manager
-
+from servidor import ServidorWindow
+def obter_db_path():
+    servidor = ServidorWindow()  # Criar a instância
+    return servidor.get_db_path()  # Chama o método para obter o caminho do banco
 # Configurações
-DB_PATH = 'basecpf.db'
+DB_PATH = obter_db_path()
 LIMITE_PROCESSOS = 5
 LIMITE_RESULTADOS = 20
 
