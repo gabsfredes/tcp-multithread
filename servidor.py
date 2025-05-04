@@ -9,6 +9,7 @@ import threading
 from multiprocessing import Process, Queue, set_start_method, Manager
 import ssl
 
+
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QFileDialog
 
@@ -78,7 +79,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.log(f"📄 Banco: {arquivo}")
 
     def iniciar_servidor(self):
-        import ssl
+        
     
         if self.servidor_rodando:
             self.log("⚠️ Servidor já está rodando.")
