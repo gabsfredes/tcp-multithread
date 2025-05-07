@@ -2,7 +2,7 @@ import sys
 import socket
 import sqlite3
 import json
-import gzip
+import  gzip
 import time
 import os
 import threading
@@ -124,7 +124,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.servidor_thread = threading.Thread(target=self.aceitar_clientes, daemon=True)
             self.servidor_thread.start()
 
-            self.botao_iniciar.setEnabled(False)
+            self.botao_iniciar.setEnabled(True)
             self.atualizar_led_status(True)
 
         except Exception as e:
