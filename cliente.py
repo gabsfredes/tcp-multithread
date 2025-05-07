@@ -2,7 +2,6 @@ import sys
 import socket
 import threading
 import json
-import gzip
 import os
 import uuid
 import time
@@ -167,10 +166,9 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
         try:
             mensagem_json = json.dumps(mensagem_obj)
             mensagem_bytes = mensagem_json.encode('utf-8')
-            mensagem_compactada = gzip.compress(mensagem_bytes)
 
-            tamanho = len(mensagem_compactada)
-            self.sock.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+            tamanho = len(mensagem_bytes)
+            self.sock.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_bytes)
 
         except Exception as e:
             self.log(f"❌ Erro ao enviar pacote: {e}")
@@ -182,13 +180,13 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
             if not tamanho_bytes:
                 raise ConnectionResetError("Servidor fechou a conexão")
             tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
-            dados_compactados = b''
-            while len(dados_compactados) < tamanho:
-                parte = self.sock.recv(tamanho - len(dados_compactados))
+            dados = b''
+            while len(dados) < tamanho:
+                parte = self.sock.recv(tamanho - len(dados))
                 if not parte:
                     raise ConnectionResetError("Servidor fechou a conexão durante recebimento")
-                dados_compactados += parte
-            dados_json = gzip.decompress(dados_compactados).decode('utf-8')
+                dados += parte
+            dados_json = dados.decode('utf-8')
             mensagem = json.loads(dados_json)
             return mensagem
         except socket.timeout:

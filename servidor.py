@@ -2,19 +2,15 @@ import sys
 import socket
 import sqlite3
 import json
-import gzip
 import time
 import os
 import threading
 from multiprocessing import Process, Queue, set_start_method, Manager
 import ssl
-
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QFileDialog
-
 from servidor_gui import Ui_Servidor
 
-# gerar openssl req -x509 -newkey rsa:4096 -keyout chave.pem -out cert.pem -days 365 -nodes -config openssl.cnf
 
 
 def consultar_nome_processo(db_path, valor, limite_resultados, queue_resultado):
@@ -124,7 +120,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.servidor_thread = threading.Thread(target=self.aceitar_clientes, daemon=True)
             self.servidor_thread.start()
 
-            self.botao_iniciar.setEnabled(False)
+            self.botao_iniciar.setEnabled(True)
             self.atualizar_led_status(True)
 
         except Exception as e:
@@ -183,9 +179,8 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                     try:
                         mensagem = {"tipo": "rejeitado", "motivo": "Limite de clientes atingido."}
                         mensagem_json = json.dumps(mensagem).encode('utf-8')
-                        mensagem_compactada = gzip.compress(mensagem_json)
-                        tamanho = len(mensagem_compactada)
-                        cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+                        tamanho = len(mensagem_json)
+                        cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_json)
                     except Exception as e:
                         self.log(f"⚠️ Erro ao enviar mensagem de rejeição: {e}")
                     finally:
@@ -207,9 +202,8 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             try:
                 mensagem_json = json.dumps(mensagem_obj)
                 mensagem_bytes = mensagem_json.encode('utf-8')
-                mensagem_compactada = gzip.compress(mensagem_bytes)
-                tamanho = len(mensagem_compactada)
-                cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+                tamanho = len(mensagem_bytes)
+                cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_bytes)
             except Exception as e:
                 self.mensagem_queue.put(f"❌ Erro enviando resposta para {endereco}: {e}")
 
@@ -219,10 +213,10 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                 if not tamanho_bytes:
                     return None
                 tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
-                dados_compactados = b''
-                while len(dados_compactados) < tamanho:
-                    dados_compactados += cliente_socket.recv(tamanho - len(dados_compactados))
-                dados_json = gzip.decompress(dados_compactados).decode('utf-8')
+                dados = b''
+                while len(dados) < tamanho:
+                    dados += cliente_socket.recv(tamanho - len(dados))
+                dados_json = dados.decode('utf-8')
                 return json.loads(dados_json)
             except:
                 return None

@@ -5,3 +5,5 @@ __pycache__/
 *.pyc
 # Ignore PEM files (keys)
 *.pem
+chave.pem
+cert.pem
