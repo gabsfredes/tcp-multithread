@@ -77,8 +77,6 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.log(f"📄 Banco: {arquivo}")
 
     def iniciar_servidor(self):
-        
-    
         if self.servidor_rodando:
             self.log("⚠️ Servidor já está rodando.")
             return
@@ -117,11 +115,16 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.log(f"🔧 Servidor SSL iniciado em {self.ip}:{self.porta}")
             self.servidor_rodando = True
 
+            # Mantendo o servidor em execução com um único loop contínuo.
             self.servidor_thread = threading.Thread(target=self.aceitar_clientes, daemon=True)
             self.servidor_thread.start()
 
             self.botao_iniciar.setEnabled(True)
             self.atualizar_led_status(True)
+
+        except Exception as e:
+            self.log(f"❌ Erro ao iniciar servidor com SSL: {e}")
+
 
         except Exception as e:
             self.log(f"❌ Erro ao iniciar servidor com SSL: {e}")
@@ -174,7 +177,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
         while self.servidor_rodando:
             try:
                 cliente_socket, endereco = self.servidor_socket.accept()
-    
+
                 if len(self.clientes_ativos) >= self.limite_clientes:
                     try:
                         mensagem = {"tipo": "rejeitado", "motivo": "Limite de clientes atingido."}
@@ -186,16 +189,17 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                     finally:
                         cliente_socket.close()
                         self.log(f"⚠️ Conexão recusada de {endereco} (limite de clientes atingido)")
+
                     continue
-                
+
                 self.clientes_ativos.append(cliente_socket)
                 self.log(f"📢 Cliente conectado: {endereco}")
-    
-                thread = threading.Thread(target=self.tratar_cliente, args=(cliente_socket, endereco), daemon=True)
-                thread.start()
-    
+
+                self.tratar_cliente(cliente_socket, endereco)
+
             except Exception as e:
                 self.log(f"❌ Erro aceitando cliente: {e}")
+
     
     def tratar_cliente(self, cliente_socket, endereco):
         def enviar_pacote(cliente_socket, mensagem_obj):
@@ -231,7 +235,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                     p.start()
                     p.join()
                     colunas, resultados = resultado_queue.get()
-                    
+
                 elif tipo == "cpf":
                     colunas, resultados = consultar_cpf(self.db_path, valor)
                 else:
@@ -275,6 +279,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             if threading.current_thread() is threading.main_thread() or threading.current_thread().name.startswith('Thread'):
                 if cliente_socket in self.clientes_ativos:
                     self.clientes_ativos.remove(cliente_socket)
+
 
 if __name__ == "__main__":
     try:

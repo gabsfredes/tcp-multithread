@@ -24,7 +24,6 @@ class ClienteWindow(QtWidgets.QMainWindow, Ui_Cliente):
         self.botao_desconectar.clicked.connect(self.desconectar)
         self.botao_limpar_terminal.clicked.connect(self.limpar_terminal)
         
-
         self.novo_alerta.connect(self._mostrar_alerta_gui)
 
         self.sock = None
