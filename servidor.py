@@ -2,19 +2,15 @@ import sys
 import socket
 import sqlite3
 import json
-import  gzip
 import time
 import os
 import threading
 from multiprocessing import Process, Queue, set_start_method, Manager
 import ssl
-
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtWidgets import QFileDialog
-
 from servidor_gui import Ui_Servidor
 
-# gerar openssl req -x509 -newkey rsa:4096 -keyout chave.pem -out cert.pem -days 365 -nodes -config openssl.cnf
 
 
 def consultar_nome_processo(db_path, valor, limite_resultados, queue_resultado):
@@ -81,8 +77,6 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.log(f"📄 Banco: {arquivo}")
 
     def iniciar_servidor(self):
-        
-    
         if self.servidor_rodando:
             self.log("⚠️ Servidor já está rodando.")
             return
@@ -121,11 +115,16 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.log(f"🔧 Servidor SSL iniciado em {self.ip}:{self.porta}")
             self.servidor_rodando = True
 
+            # Mantendo o servidor em execução com um único loop contínuo.
             self.servidor_thread = threading.Thread(target=self.aceitar_clientes, daemon=True)
             self.servidor_thread.start()
 
             self.botao_iniciar.setEnabled(True)
             self.atualizar_led_status(True)
+
+        except Exception as e:
+            self.log(f"❌ Erro ao iniciar servidor com SSL: {e}")
+
 
         except Exception as e:
             self.log(f"❌ Erro ao iniciar servidor com SSL: {e}")
@@ -178,38 +177,37 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
         while self.servidor_rodando:
             try:
                 cliente_socket, endereco = self.servidor_socket.accept()
-    
+
                 if len(self.clientes_ativos) >= self.limite_clientes:
                     try:
                         mensagem = {"tipo": "rejeitado", "motivo": "Limite de clientes atingido."}
                         mensagem_json = json.dumps(mensagem).encode('utf-8')
-                        mensagem_compactada = gzip.compress(mensagem_json)
-                        tamanho = len(mensagem_compactada)
-                        cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+                        tamanho = len(mensagem_json)
+                        cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_json)
                     except Exception as e:
                         self.log(f"⚠️ Erro ao enviar mensagem de rejeição: {e}")
                     finally:
                         cliente_socket.close()
                         self.log(f"⚠️ Conexão recusada de {endereco} (limite de clientes atingido)")
+
                     continue
-                
+
                 self.clientes_ativos.append(cliente_socket)
                 self.log(f"📢 Cliente conectado: {endereco}")
-    
-                thread = threading.Thread(target=self.tratar_cliente, args=(cliente_socket, endereco), daemon=True)
-                thread.start()
-    
+
+                self.tratar_cliente(cliente_socket, endereco)
+
             except Exception as e:
                 self.log(f"❌ Erro aceitando cliente: {e}")
+
     
     def tratar_cliente(self, cliente_socket, endereco):
         def enviar_pacote(cliente_socket, mensagem_obj):
             try:
                 mensagem_json = json.dumps(mensagem_obj)
                 mensagem_bytes = mensagem_json.encode('utf-8')
-                mensagem_compactada = gzip.compress(mensagem_bytes)
-                tamanho = len(mensagem_compactada)
-                cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_compactada)
+                tamanho = len(mensagem_bytes)
+                cliente_socket.sendall(tamanho.to_bytes(4, byteorder='big') + mensagem_bytes)
             except Exception as e:
                 self.mensagem_queue.put(f"❌ Erro enviando resposta para {endereco}: {e}")
 
@@ -219,10 +217,10 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                 if not tamanho_bytes:
                     return None
                 tamanho = int.from_bytes(tamanho_bytes, byteorder='big')
-                dados_compactados = b''
-                while len(dados_compactados) < tamanho:
-                    dados_compactados += cliente_socket.recv(tamanho - len(dados_compactados))
-                dados_json = gzip.decompress(dados_compactados).decode('utf-8')
+                dados = b''
+                while len(dados) < tamanho:
+                    dados += cliente_socket.recv(tamanho - len(dados))
+                dados_json = dados.decode('utf-8')
                 return json.loads(dados_json)
             except:
                 return None
@@ -237,7 +235,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                     p.start()
                     p.join()
                     colunas, resultados = resultado_queue.get()
-                    
+
                 elif tipo == "cpf":
                     colunas, resultados = consultar_cpf(self.db_path, valor)
                 else:
@@ -281,6 +279,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             if threading.current_thread() is threading.main_thread() or threading.current_thread().name.startswith('Thread'):
                 if cliente_socket in self.clientes_ativos:
                     self.clientes_ativos.remove(cliente_socket)
+
 
 if __name__ == "__main__":
     try:

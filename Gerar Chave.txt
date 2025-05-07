@@ -1,0 +1,8 @@
+Abra o arquivo openssl.cnf e altere as linhas abaixo para o IP da sua máquina:
+
+CN = Seu IPV4
+IP.1 = Seu IPV4
+
+Abra um terminal na pasta onde está o arquivo openssl.cnf e execute o seguinte comando:
+
+openssl req -x509 -newkey rsa:4096 -keyout chave.pem -out cert.pem -days 365 -nodes -config openssl.cnf
