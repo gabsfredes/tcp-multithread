@@ -14,8 +14,8 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 class Ui_Cliente(object):
     def setupUi(self, Cliente):
         Cliente.setObjectName("Cliente")
-        Cliente.resize(986, 462)
-        Cliente.setMaximumSize(QtCore.QSize(986, 16777215))
+        Cliente.resize(986, 457)
+        Cliente.setMaximumSize(QtCore.QSize(986, 460))
         palette = QtGui.QPalette()
         brush = QtGui.QBrush(QtGui.QColor(255, 255, 255))
         brush.setStyle(QtCore.Qt.SolidPattern)
@@ -303,6 +303,14 @@ class Ui_Cliente(object):
         self.botao_limpar_terminal = QtWidgets.QPushButton(self.centralwidget)
         self.botao_limpar_terminal.setGeometry(QtCore.QRect(374, 260, 101, 23))
         self.botao_limpar_terminal.setObjectName("botao_limpar_terminal")
+        self.textBrowser = QtWidgets.QTextBrowser(self.centralwidget)
+        self.textBrowser.setEnabled(False)
+        self.textBrowser.setGeometry(QtCore.QRect(20, 320, 461, 91))
+        font = QtGui.QFont()
+        font.setFamily("Arial")
+        font.setPointSize(12)
+        self.textBrowser.setFont(font)
+        self.textBrowser.setObjectName("textBrowser")
         Cliente.setCentralWidget(self.centralwidget)
         self.statusbar = QtWidgets.QStatusBar(Cliente)
         self.statusbar.setObjectName("statusbar")
@@ -325,3 +333,9 @@ class Ui_Cliente(object):
         self.botao_cpf.setText(_translate("Cliente", "Pesquisar"))
         self.botao_desconectar.setText(_translate("Cliente", "Desconectar do servidor"))
         self.botao_limpar_terminal.setText(_translate("Cliente", "Limpar Terminal"))
+        self.textBrowser.setHtml(_translate("Cliente", "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD HTML 4.0//EN\" \"http://www.w3.org/TR/REC-html40/strict.dtd\">\n"
+"<html><head><meta name=\"qrichtext\" content=\"1\" /><style type=\"text/css\">\n"
+"p, li { white-space: pre-wrap; }\n"
+"</style></head><body style=\" font-family:\'Arial\'; font-size:12pt; font-weight:400; font-style:normal;\">\n"
+"<p align=\"justify\" style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\">O nome pode ser pesquisado por partes, utilizando <span style=\" font-style:italic;\">&quot; % &quot;</span> para informar onde deve ser pesquisado. Exemplo: Pesquisar todas pessoas com sobrenome Rodrigues <span style=\" font-style:italic;\">&quot; % Rodrigues &quot;</span>.</p>\n"
+"<p align=\"justify\" style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-weight:600;\">CPF informar somente números.</span></p></body></html>"))
