@@ -40,6 +40,9 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
     def __init__(self):
         super().__init__()
         self.setupUi(self)
+        
+        self.max_processos = self.campo_processos.value()
+        self.processos_ativos = 0
 
         self.botao_iniciar.clicked.connect(self.iniciar_servidor)
         self.botao_desligar.clicked.connect(self.parar_servidor)
@@ -92,6 +95,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             self.ip = ip_texto
             self.porta = int(porta_texto)
 
+            self.max_processos = self.campo_processos.value()
             self.limite_clientes = int(self.spinbox_maxclientes.value())
             self.limite_resultados = int(self.campo_resultados.value())
             self.db_path = getattr(self, "caminho_banco", None)
@@ -229,12 +233,20 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             try:
                 start_time = time.time()
 
+                if self.processos_ativos >= self.max_processos:
+                    self.log(f"🚶‍♂️ Pedido de {cliente_socket.getpeername()} colocado na fila.")
+                    mensagem = {"erro": "🚀 Limite de processos atingido. Tente uma nova pesquisa após obter um resultado"}
+                    enviar_pacote(cliente_socket, mensagem)
+                    return 
+            
                 if tipo == "nome":
+                    self.processos_ativos += 1
                     resultado_queue = Queue()
                     p = Process(target=consultar_nome_processo, args=(self.db_path, valor, self.limite_resultados, resultado_queue))
                     p.start()
                     
                     colunas, resultados = resultado_queue.get()
+                    self.processos_ativos -= 1
 
                 elif tipo == "cpf":
                     colunas, resultados = consultar_cpf(self.db_path, valor)
@@ -251,6 +263,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                     resposta = {"erro": "Nenhum resultado encontrado.", "request_id": request_id, "tempo": tempo_total}
 
                 enviar_pacote(cliente_socket, resposta)
+                self.verificar_fila()
                 self.mensagem_queue.put(f"📤 Resposta enviada para {endereco} (Tempo: {tempo_total:.2f} segundos)")
             except Exception as e:
                 self.mensagem_queue.put(f"❌ Erro processando consulta de {endereco}: {e}")
@@ -279,8 +292,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
             if threading.current_thread() is threading.main_thread() or threading.current_thread().name.startswith('Thread'):
                 if cliente_socket in self.clientes_ativos:
                     self.clientes_ativos.remove(cliente_socket)
-
-
+    
 if __name__ == "__main__":
     try:
         set_start_method('spawn')
