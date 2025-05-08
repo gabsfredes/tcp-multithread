@@ -6,18 +6,16 @@ import uuid
 
 app = Flask(__name__)
 
-SERVER_HOST = '26.83.32.20'  # IP do servidor
-SERVER_PORT = 5000  # Porta do servidor
 CERT_PATH = 'cert.pem'  # Caminho para o seu certificado
 KEY_PATH = 'chave.pem'  # Caminho para a sua chave privada
 
-def send_request_to_server(payload):
+def send_request_to_server(payload, server_host, server_port):
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE  # Se não tiver CA
 
-    with socket.create_connection((SERVER_HOST, SERVER_PORT)) as sock:
-        with context.wrap_socket(sock, server_hostname=SERVER_HOST) as ssock:
+    with socket.create_connection((server_host, server_port)) as sock:
+        with context.wrap_socket(sock, server_hostname=server_host) as ssock:
             request_data = json.dumps(payload).encode('utf-8')
             header = len(request_data).to_bytes(4, 'big')
             ssock.sendall(header + request_data)
@@ -37,7 +35,12 @@ def send_request_to_server(payload):
 def index():
     result = None
     error = None
+    server_host = None
+    server_port = None
     if request.method == 'POST':
+        # Pega os valores de IP, Porta, CPF e Nome
+        server_host = request.form.get('server_host')
+        server_port = int(request.form.get('server_port'))
         cpf = request.form.get('cpf')
         nome = request.form.get('nome')
 
@@ -52,19 +55,22 @@ def index():
             if not payload:
                 error = "Informe CPF ou nome."
             else:
-                result = send_request_to_server(payload)
-
-                # Verificando a resposta
-                if 'erro' in result:
-                    error = result['erro']
+                if not server_host or not server_port:
+                    error = "Informe o IP e a porta do servidor."
                 else:
-                    # Organizando os dados para exibição
-                    result_data = {
-                        "tempo": result.get("tempo", "N/A"),
-                        "colunas": result.get("colunas", []),
-                        "dados": result.get("dados", [])
-                    }
-                    result = result_data
+                    result = send_request_to_server(payload, server_host, server_port)
+
+                    # Verificando a resposta
+                    if 'erro' in result:
+                        error = result['erro']
+                    else:
+                        # Organizando os dados para exibição
+                        result_data = {
+                            "tempo": result.get("tempo", "N/A"),
+                            "colunas": result.get("colunas", []),
+                            "dados": result.get("dados", [])
+                        }
+                        result = result_data
 
         except Exception as e:
             error = f"Erro na requisição: {str(e)}"
