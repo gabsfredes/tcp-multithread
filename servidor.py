@@ -233,7 +233,7 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                     resultado_queue = Queue()
                     p = Process(target=consultar_nome_processo, args=(self.db_path, valor, self.limite_resultados, resultado_queue))
                     p.start()
-                    p.join()
+                    
                     colunas, resultados = resultado_queue.get()
 
                 elif tipo == "cpf":

@@ -4,11 +4,11 @@ x509_extensions = v3_req
 prompt = no
 
 [ req_distinguished_name ]
-CN = 26.108.61.24
+CN = 26.83.32.20
 
 [ v3_req ]
 subjectAltName = @alt_names
 
 [ alt_names ]
-IP.1 = 26.108.61.24
+IP.1 = 26.83.32.20
 DNS.1 = localhost
