@@ -234,7 +234,6 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                 start_time = time.time()
 
                 if self.processos_ativos >= self.max_processos:
-                    self.log(f"🚶‍♂️ Pedido de {cliente_socket.getpeername()} colocado na fila.")
                     mensagem = {"erro": "🚀 Limite de processos atingido. Tente uma nova pesquisa após obter um resultado"}
                     enviar_pacote(cliente_socket, mensagem)
                     return 
@@ -263,7 +262,6 @@ class ServidorWindow(QtWidgets.QMainWindow, Ui_Servidor):
                     resposta = {"erro": "Nenhum resultado encontrado.", "request_id": request_id, "tempo": tempo_total}
 
                 enviar_pacote(cliente_socket, resposta)
-                self.verificar_fila()
                 self.mensagem_queue.put(f"📤 Resposta enviada para {endereco} (Tempo: {tempo_total:.2f} segundos)")
             except Exception as e:
                 self.mensagem_queue.put(f"❌ Erro processando consulta de {endereco}: {e}")
